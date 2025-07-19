@@ -1,0 +1,9 @@
+global function EXTModSettings
+
+void function EXTModSettings()
+{
+	ModSettings_AddModTitle( "#EXT_MOD_TITLE" )
+	ModSettings_AddModCategory( "#EXT_MOD_MATEGORY_MUSIC_OPTION" )
+	ModSettings_AddEnumSetting( "ext_disable_overall_music", "#EXT_MUSIC_OPTION", [ "#SETTING_OFF", "#SETTING_ON" ] )
+	NSSetModeCategory( Localize( "#GAMEMODE_EXT" ), eModeMenuModeCategory.PVE )
+}

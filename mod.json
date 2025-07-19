@@ -1,0 +1,48 @@
+{
+	"Name" : "Extraction",
+	"Description" : "PvE based gamemode: Complete multiple objectives and survive until dropship extract all players",
+	"Version": "1.4.1",
+	"LoadPriority": 3,
+	"RequiredOnClient": true,
+	"ConVars": [
+		{
+			"Name": "ext_disable_overall_music",
+			"DefaultValue": "0",
+			"Flags": "ARCHIVE_PLAYERPROFILE"
+		}
+	],
+	"Scripts": [
+		{
+			"Path": "gamemodes/sh_gamemode_extraction.gnut",
+			"RunOn": "( CLIENT || SERVER ) && MP",
+			"ClientCallback": {
+				"Before": "Sh_GamemodeExtraction_Init"
+			},
+			"ServerCallback": {
+				"Before": "Sh_GamemodeExtraction_Init"
+			}
+		},
+		{
+			"Path": "gamemodes/_gamemode_ext.nut",
+			"RunOn": "SERVER && MP"
+		},
+		{
+			"Path": "gamemodes/cl_gamemode_ext.nut",
+			"RunOn": "CLIENT && MP"
+		},
+		{
+			"Path": "mp/levels/extraction_maps.nut",
+			"RunOn": "SERVER && MP"
+		},
+		{
+		  "Path": "ui/ext_mod_settings.gnut",
+		  "RunOn": "UI",
+		  "UICallback": {
+			"Before": "EXTModSettings"
+		  }
+		}
+	],
+	"Localisation": [
+		"resource/extraction_localisation_%language%.txt"
+	]
+}

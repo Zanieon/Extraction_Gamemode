@@ -1,0 +1,130 @@
+global function Sh_GamemodeExtraction_Init
+global function GetObjectiveCurrentCounter
+global function GetObjectiveMaxCounter
+
+global const string GAMEMODE_EXT = "Extraction"
+global const int MAX_HAZARD_LEVEL = 5
+
+global enum eEXTTutorials
+{
+	SurviveStart,
+	Objectives,
+	WeaponsAndGear,
+	PlayerDied,
+	HazardScaling,
+	RobotBanks,
+	ScoreBars,
+	TerminalHacking,
+	TitanLimit
+}
+
+global enum eEXTObjectives
+{
+	None,
+	DestroyHarvester,
+	GatherBatteries,
+	DefendPosition,
+	ActivateTerminals,
+	DataRecovery,
+	DataDelivery,
+	FinalExtraction,
+	KillQuota,
+	EliminateEliteTitan
+}
+
+void function Sh_GamemodeExtraction_Init()
+{
+	AddPrivateMatchMode( "Extraction" )
+
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_objective_min", "8" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_objective_max", "12" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_respawn_cooldown", "60" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_hazard_chance", "40" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_max_ally_titans", "4" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_time_extraction", "190" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_weapon_crate_time", "120" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_weapon_crate_min_guns", "2" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_weapon_crate_max_guns", "5" )
+	AddPrivateMatchModeSettingArbitrary( GAMEMODE_EXT, "ext_max_active_infantry", "32" )
+
+	AddCallback_OnCustomGamemodesInit( CreateGamemodeEXT )
+	AddCallback_OnRegisteringCustomNetworkVars( EXTRegisterNetworkVars )
+}
+
+void function CreateGamemodeEXT()
+{
+	GameMode_Create( GAMEMODE_EXT )
+	GameMode_SetName( GAMEMODE_EXT, "#GAMEMODE_EXT" )
+	GameMode_SetDesc( GAMEMODE_EXT, "#PL_extraction_desc" )
+	GameMode_SetGameModeAnnouncement( GAMEMODE_EXT, "extract_modeName" )
+	GameMode_SetIcon( GAMEMODE_EXT, $"ui/menu/playlist/cp" )
+	GameMode_SetDefaultScoreLimits( GAMEMODE_EXT, 0, 4 )
+	GameMode_SetDefaultTimeLimits( GAMEMODE_EXT, 0, 5 )
+	GameMode_AddScoreboardColumnData( GAMEMODE_EXT, "#SCOREBOARD_SUPPORT_SCORE", PGS_DEFENSE_SCORE, 4 )
+	GameMode_AddScoreboardColumnData( GAMEMODE_EXT, "#SCOREBOARD_GRUNT_KILLS", PGS_NPC_KILLS, 4 )
+	GameMode_SetColor( GAMEMODE_EXT, [128, 255, 255, 255] )
+
+	AddPrivateMatchMode( GAMEMODE_EXT )
+	
+	#if SERVER
+		GameMode_AddServerInit( GAMEMODE_EXT, GamemodeEXT_Init )
+		GameMode_SetPilotSpawnpointsRatingFunc( GAMEMODE_EXT, RateSpawnpoints_Generic )
+		GameMode_SetTitanSpawnpointsRatingFunc( GAMEMODE_EXT, RateSpawnpoints_Generic )
+	#elseif CLIENT
+		GameMode_AddClientInit( GAMEMODE_EXT, ClGamemodeEXT_Init )
+	#endif
+	#if !UI
+		GameMode_SetScoreCompareFunc( GAMEMODE_EXT, CompareDefense )
+		GameMode_AddSharedInit( GAMEMODE_EXT, GamemodeFFA_Dialogue_Init )
+	#endif
+}
+
+void function EXTRegisterNetworkVars()
+{
+	if ( GAMETYPE != GAMEMODE_EXT )
+		return
+	
+	RegisterString( "#EXT_VICTORY_MESSAGE_OBJECTIVE" )
+	RegisterString( "#EXT_DEFEAT_MESSAGE_OBJECTIVE" )
+	RegisterString( "#EXT_DEFEAT_MESSAGE_DROPSHIP" )
+	RegisterString( "#EXT_DEFEAT_MESSAGE_DROPSHIP_EMPTY" )
+	RegisterString( "#EXT_DEFEAT_MESSAGE_HACKER_GRUNTS_DEAD" )
+	
+	RegisterSignal( "ObjectiveCompleted" )
+	
+	RegisterNetworkedVariable( "currentMainObjective", SNDC_GLOBAL, SNVT_INT )
+	RegisterNetworkedVariable( "hazardLevel", SNDC_GLOBAL, SNVT_INT )
+	RegisterNetworkedVariable( "objectiveCounter", SNDC_GLOBAL, SNVT_UNSIGNED_INT )
+	RegisterNetworkedVariable( "objectiveCounter256", SNDC_GLOBAL, SNVT_UNSIGNED_INT )
+	RegisterNetworkedVariable( "maxObjectiveInteractors", SNDC_GLOBAL, SNVT_UNSIGNED_INT )
+	RegisterNetworkedVariable( "maxObjectiveInteractors256", SNDC_GLOBAL, SNVT_UNSIGNED_INT )
+
+	RegisterNetworkedVariable( "tabletInventoryCount", SNDC_PLAYER_EXCLUSIVE, SNVT_INT, 0 )
+	RegisterNetworkedVariable( "playerGotJumpkit", SNDC_PLAYER_EXCLUSIVE, SNVT_BOOL, false )
+	RegisterNetworkedVariable( "playerGotTactical", SNDC_PLAYER_EXCLUSIVE, SNVT_BOOL, false )
+	RegisterNetworkedVariable( "showOverheadIcon", SNDC_TITAN_SOUL, SNVT_BOOL, false )
+
+	Remote_RegisterFunction( "ServerCallback_EXT_NewObjective" )
+	Remote_RegisterFunction( "ServerCallback_EXT_ObjectiveComplete" )
+	Remote_RegisterFunction( "ServerCallback_EXT_StartDropshipExtraction" )
+	Remote_RegisterFunction( "ServerCallback_EXT_SyncSettings" )
+	Remote_RegisterFunction( "ServerCallback_EXT_AnnounceJumpKit" )
+	Remote_RegisterFunction( "ServerCallback_EXT_AnnounceTactical" )
+	Remote_RegisterFunction( "ServerCallback_EXT_ShowTutorialHint" )
+	Remote_RegisterFunction( "ServerCallback_EXT_AnnounceHazardIncrease" )
+	Remote_RegisterFunction( "ServerCallback_EXT_PlayerRespawnRefreshIcons" )
+	
+	#if CLIENT
+		CLExtraction_RegisterNetworkFunctions()
+	#endif
+}
+
+int function GetObjectiveCurrentCounter()
+{
+	return GetGlobalNetInt( "objectiveCounter" ) + ( 256 * GetGlobalNetInt( "objectiveCounter256" ) )
+}
+
+int function GetObjectiveMaxCounter()
+{
+	return GetGlobalNetInt( "maxObjectiveInteractors" ) + ( 256 * GetGlobalNetInt( "maxObjectiveInteractors256" ) )
+}
