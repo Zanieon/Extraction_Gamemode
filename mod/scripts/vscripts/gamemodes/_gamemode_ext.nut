@@ -58,6 +58,7 @@ struct {
 	int maxAlliedTitans = 4
 	int minGunsCrates = 2
 	int maxGunsCrates = 5
+	bool mapHackActive = false
 }file
 
 const float OBJECTIVE_TIME_BREAK = 30 // This could be configurable, but not doing because it is decent minimum time that announcements dont overlap each other
@@ -94,7 +95,7 @@ const int WEAPON_CRATE_HEALTH = 100
 const float INFANTRY_ASSAULT_ENGAGEMENT_RADIUS = 600 // Total combat area the enemies will stick around looking to for cover and targets
 const float TITAN_ASSAULT_ENGAGEMENT_RADIUS = 1200 // Titans requires a bit more space to not feel cramped around combat point
 const float SPAWN_ENEMY_MINDIST = 600 // Players won't have enemies spawning within this distance from them
-const float SPAWN_ENEMY_MAXDIST_LOCATION = 3000 // When objective is an enemy magnet one, cap the very far distances
+const float SPAWN_ENEMY_MAXDIST_LOCATION = 2400 // When objective is an enemy magnet one, cap the very far distances
 
 const asset WEAPON_CRATE_MODEL = $"models/containers/pelican_case_ammobox.mdl"
 const asset MODEL_TERMINAL_PLACEHOLDER = $"models/weapons/bullets/triple_threat_projectile.mdl"
@@ -1329,6 +1330,17 @@ void function TitanScaleByHazard( entity ent )
 {
 	if ( ent.GetTeam() == TEAM_IMC && GetGlobalNetInt( "hazardLevel" ) >= 5 )
 		thread OnNPCTitanSpawn_Thread( ent )
+
+	if ( ent.GetTeam() == TEAM_MILITIA )
+	{
+		entity soul = ent.GetTitanSoul()
+		if( IsValid( soul ) )
+		{
+			soul.SetPreventCrits( true )
+			soul.SetShieldHealth( soul.GetShieldHealthMax() )
+			thread FriendlyTitanShieldRegenThink( soul )
+		}
+	}
 }
 
 void function OnNPCTitanSpawn_Thread( entity npc )
@@ -1345,7 +1357,7 @@ void function OnNPCTitanSpawn_Thread( entity npc )
 
 void function EXT_SpawnEliteTitan()
 {
-	array<entity> spawnpoints = SpawnPoints_GetTitan()
+	array< entity > spawnpoints = SpawnPoints_GetTitan()
 	entity chosenSpawn = spawnpoints.getrandom()
 	vector pos = chosenSpawn.GetOrigin()
 
@@ -1423,7 +1435,7 @@ void function Infantry_Spawner_Thread()
 		int totalGrunts = 0
 		int totalSpectres = 0
 		int totalStalkers = 0
-		array<entity> npcs = GetNPCArrayOfTeam( TEAM_IMC )
+		array< entity > npcs = GetNPCArrayOfTeam( TEAM_IMC )
 		ArrayRemoveDead( npcs )
 		foreach ( entity npc in npcs )
 		{
@@ -1472,8 +1484,8 @@ void function Reaper_Spawner_Thread()
 	{
 		FlagWait( "EnemySpawnerActive" )
 
-		array<entity> npcs = GetNPCArrayOfTeam( TEAM_IMC )
-		array<entity> reapers
+		array< entity > npcs = GetNPCArrayOfTeam( TEAM_IMC )
+		array< entity > reapers
 		ArrayRemoveDead( npcs )
 		foreach ( entity npc in npcs )
 		{
@@ -1499,7 +1511,7 @@ void function Titan_Spawner_Thread()
 	{
 		FlagWait( "EnemySpawnerActive" )
 
-		array<entity> npcs = GetTitanArrayOfTeam( TEAM_IMC )
+		array< entity > npcs = GetTitanArrayOfTeam( TEAM_IMC )
 		ArrayRemoveDead( npcs )
 
 		if ( npcs.len() < file.maxEnemyTitans )
@@ -1516,6 +1528,7 @@ vector function GetSpawnpointsOutsidePlayerLOS_HumanUnits()
 {
 	array< entity > spawnpoints = SpawnPoints_GetPilot()
 	array< vector > spawnVecs
+	array< vector > filteredSpawnVecs
 
 	foreach ( entity spawnpoint in spawnpoints )
 		spawnVecs.append( spawnpoint.GetOrigin() )
@@ -1525,25 +1538,43 @@ vector function GetSpawnpointsOutsidePlayerLOS_HumanUnits()
 		bool needsToRemove = false
 		foreach ( player in GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ) )
 		{
-			TraceResults result = TraceLine( spawnpoint + < 0, 0, 48 >, player.GetOrigin() + < 0, 0, 48 >, [player], TRACE_MASK_SOLID_BRUSHONLY, TRACE_COLLISION_GROUP_NONE )
-			if ( Distance( spawnpoint, player.GetOrigin() + < 0, 0, 48 > ) < SPAWN_ENEMY_MINDIST || result.fraction == 1.0 )
+			TraceResults result = TraceLineNoEnts( spawnpoint + < 0, 0, 48 >, player.GetOrigin() + < 0, 0, 48 >, TRACE_MASK_SHOT )
+			if ( Distance( spawnpoint, player.GetOrigin() ) < SPAWN_ENEMY_MINDIST || result.fraction == 1.0 )
 				needsToRemove = true
 		}
 
 		if ( file.enemiesAssaultSpecialPosition != < 0, 0, 0 > && Distance2D( spawnpoint, file.enemiesAssaultSpecialPosition ) > SPAWN_ENEMY_MAXDIST_LOCATION )
 			needsToRemove = true
 
-		if( needsToRemove )
-			spawnVecs.removebyvalue( spawnpoint )
+		if( !needsToRemove )
+			filteredSpawnVecs.append( spawnpoint )
 	}
 
-	return spawnVecs.getrandom()
+	if ( !filteredSpawnVecs.len() )
+	{
+		foreach ( vector spawnpoint in spawnVecs )
+		{
+			bool needsToRemove = false
+			foreach ( player in GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ) )
+			{
+				TraceResults result = TraceLineNoEnts( spawnpoint + < 0, 0, 48 >, player.GetOrigin() + < 0, 0, 48 >, TRACE_MASK_SHOT )
+				if ( Distance( spawnpoint, player.GetOrigin() ) < SPAWN_ENEMY_MINDIST || result.fraction == 1.0 )
+					needsToRemove = true
+			}
+
+			if( !needsToRemove )
+				filteredSpawnVecs.append( spawnpoint )
+		}
+	}
+	
+	return filteredSpawnVecs.getrandom()
 }
 
 vector function GetSpawnpoints_LargeUnits()
 {
 	array< entity > spawnpoints = SpawnPoints_GetTitan()
 	array< vector > spawnVecs
+	array< vector > filteredSpawnVecs
 
 	foreach ( entity spawnpoint in spawnpoints )
 		spawnVecs.append( spawnpoint.GetOrigin() )
@@ -1554,11 +1585,11 @@ vector function GetSpawnpoints_LargeUnits()
 		if ( file.enemiesAssaultSpecialPosition != < 0, 0, 0 > && Distance2D( spawnpoint, file.enemiesAssaultSpecialPosition ) > SPAWN_ENEMY_MAXDIST_LOCATION )
 			needsToRemove = true
 
-		if( needsToRemove )
-			spawnVecs.removebyvalue( spawnpoint )
+		if( !needsToRemove )
+			filteredSpawnVecs.append( spawnpoint )
 	}
 
-	return spawnVecs.getrandom()
+	return filteredSpawnVecs.getrandom()
 }
 
 
@@ -1682,7 +1713,7 @@ function TitanTerminalHacked( panel, player )
 	expect entity( panel )
 	expect entity( player )
 
-	array<entity> spawnpoints = ArrayClosest( SpawnPoints_GetTitan(), player.GetOrigin() )
+	array< entity > spawnpoints = ArrayClosest( SpawnPoints_GetTitan(), player.GetOrigin() )
 	Point spawnPoint
 	spawnPoint.origin = spawnpoints[0].GetOrigin()
 	spawnPoint.angles = < 0, RandomFloatRange( 0.0, 359.9 ), 0 >
@@ -1740,7 +1771,7 @@ void function EXT_OnNPCDeath( entity victim, var damageInfo )
 	{
 		if ( IsGrunt( victim ) )
 		{
-			if ( RandomIntRange( 1, 100 ) >= 40 )
+			if ( RandomIntRange( 1, 100 ) >= 40 || file.mapHackActive )
 				Extraction_DropIntelTablet( victim )
 		}
 	}
@@ -1832,6 +1863,56 @@ bool function ClientCommandCallbackEXTDropBattery( entity player, array<string> 
 	return true
 }
 
+void function FriendlyTitanShieldRegenThink( entity soul )
+{
+	soul.EndSignal( "OnDestroy" )
+	soul.EndSignal( "OnDeath" )
+
+	int lastShieldHealth = soul.GetShieldHealth()
+	bool shieldHealthSound = false
+	bool fullhp = true
+	int maxShield = soul.GetShieldHealthMax()
+	float lastTime = Time()
+
+	while ( true )
+	{
+		entity titan = soul.GetTitan()
+		if ( !IsValid( titan ) )
+			return
+
+		int shieldHealth = soul.GetShieldHealth()
+		Assert( titan )
+
+		if ( lastShieldHealth <= 0 && shieldHealth && titan.IsPlayer() )
+		{
+		 	EmitSoundOnEntityOnlyToPlayer( titan, titan, "titan_energyshield_up_1P" )
+		 	shieldHealthSound = true
+		 	if ( titan.IsTitan() )
+		 		GiveFriendlyRodeoPlayerProtection( titan )
+		}
+		else if ( shieldHealthSound && shieldHealth == soul.GetShieldHealthMax() )
+			shieldHealthSound = false
+
+		else if ( lastShieldHealth > shieldHealth && shieldHealthSound )
+		{
+		 	StopSoundOnEntity( titan, "titan_energyshield_up_1P" )
+		 	shieldHealthSound = false
+		}
+
+		if ( Time() >= soul.nextRegenTime )
+		{
+			float shieldRegenRate = maxShield / ( GetShieldRegenTime( soul ) / SHIELD_REGEN_TICK_TIME )
+			float frameTime = max( 0.0, Time() - lastTime )
+			shieldRegenRate = shieldRegenRate * frameTime / SHIELD_REGEN_TICK_TIME
+			soul.SetShieldHealth( minint( soul.GetShieldHealthMax(), int( shieldHealth + shieldRegenRate ) ) )
+		}
+		
+		lastShieldHealth = shieldHealth
+		lastTime = Time()
+		WaitFrame()
+	}
+}
+
 
 
 
@@ -1850,23 +1931,29 @@ bool function ClientCommandCallbackEXTDropBattery( entity player, array<string> 
 
 void function Extraction_DropIntelTablet( entity npc )
 {
-	entity tablet = CreatePropPhysics( MODEL_DATA_TABLET, npc.GetOrigin() + < 0, 0, 40 >, RandomVec( 180 ) )
-	SetTargetName( tablet, "intelTablet" )
-	tablet.NotSolid()
-	Highlight_SetNeutralHighlight( tablet, "sp_friendly_hero" )
-	tablet.Highlight_SetParam( 0, 0, < 0.0, 0.0, 0.0 > )
-	file.droppedTablets.append( tablet )
+	entity physTablet = CreatePropPhysics( MODEL_DATA_TABLET, npc.GetOrigin() + < 0, 0, 40 >, RandomVec( 180 ) )
+	physTablet.NotSolid()
+	physTablet.Hide()
+	SetTargetName( physTablet, "intelTablet" )
+
+	entity propTablet = CreatePropDynamic( MODEL_DATA_TABLET, physTablet.GetOrigin(), physTablet.GetAngles(), 0 )
+
+	propTablet.SetParent( physTablet, "" )
+	propTablet.SetUsable()
+	propTablet.SetUsableByGroup( "pilot titan" )
+	propTablet.SetUsePrompts( "#EXT_TABLET_GRAB_PRESS_HOLD", "#EXT_TABLET_GRAB_PRESS_USE" )
+	Highlight_SetNeutralHighlight( propTablet, "sp_objective_entity" )
+	propTablet.Highlight_SetParam( 0, 0, < 0.0, 0.0, 0.0 > )
+	file.droppedTablets.append( propTablet )
 
 	vector vec = RandomVec( 160 )
-	tablet.SetVelocity( < vec.x, vec.y, 250 > )
-	thread TrackTabletInteraction_Thread( tablet )
+	physTablet.SetVelocity( < vec.x, vec.y, 250 > )
+	thread TrackTabletInteraction_Thread( propTablet )
 }
 
 void function TrackTabletInteraction_Thread( entity tablet )
 {
 	tablet.EndSignal( "OnDestroy" )
-	tablet.SetUsable()
-	tablet.SetUsePrompts( "#EXT_TABLET_GRAB_PRESS_HOLD", "#EXT_TABLET_GRAB_PRESS_USE" )
 
 	entity player = expect entity( tablet.WaitSignal( "OnPlayerUse" ).player )
 
@@ -1881,7 +1968,9 @@ void function TrackTabletInteraction_Thread( entity tablet )
 			IncrementObjectiveCount()
 		player.SetTitle( "Intel: " + player.GetPlayerNetInt( "tabletInventoryCount" ) )
 		file.droppedTablets.removebyvalue( tablet )
-		tablet.Destroy()
+
+		entity physTablet = tablet.GetParent()
+		physTablet.Destroy()
 	}
 }
 
@@ -2300,7 +2389,7 @@ void function DisableRobotBank( entity robotBank )
 
 entity function Extraction_SpawnHarvester()
 {
-	array<entity> spawnpoints = SpawnPoints_GetDropPod()
+	array< entity > spawnpoints = SpawnPoints_GetDropPod()
 	entity chosenSpot = spawnpoints.getrandom()
 
 	entity harvester = CreatePropScript( MODEL_HARVESTER_EXTRACTION, chosenSpot.GetOrigin(), < 0, 0, 0 >, SOLID_VPHYSICS )
@@ -2743,7 +2832,7 @@ void function MaphackBurncard_Thread( entity player )
 
 	int playerTeam = player.GetTeam()
 	bool cleanup = false
-	array<entity> entities, affectedEntities
+	array< entity > entities, affectedEntities
 	int statusEffect = 0
 
 	OnThreadEnd(
@@ -2770,6 +2859,7 @@ void function MaphackBurncard_Thread( entity player )
 				}
 			}
 
+			file.mapHackActive = false
 			DecrementSonarPerTeam( playerTeam )
 		}
 	)
@@ -2806,11 +2896,12 @@ void function MaphackBurncard_Thread( entity player )
 			weaponCrate.Highlight_SetParam( 0, 0, < 1.0, 1.0, 1.0 > )
 		
 		foreach ( tablet in file.droppedTablets )
-			tablet.Highlight_SetParam( 0, 0, HIGHLIGHT_COLOR_INTERACT )
+			tablet.Highlight_SetParam( 0, 0, HIGHLIGHT_COLOR_OBJECTIVE )
 
 		file.respawnTerminal.Highlight_SetParam( 1, 0, < 0.5, 2.0, 0.5 > )
 		file.titanTerminal.Highlight_SetParam( 1, 0, < 0.5, 2.0, 0.5 > )
 
+		file.mapHackActive = true
 		cleanup = true
 		wait 2
 
@@ -2834,6 +2925,7 @@ void function MaphackBurncard_Thread( entity player )
 		file.titanTerminal.Highlight_SetParam( 1, 0, < 0.0, 0.0, 0.0 > )
 		
 		cleanup = false
+		file.mapHackActive = false
 		affectedEntities.clear()
 		wait 1
 	}

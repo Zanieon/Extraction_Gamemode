@@ -228,7 +228,7 @@ void function CreateCallback_BatterySpawner( entity battery )
 	var rui = CreateCockpitRui( $"ui/fra_battery_icon.rpak" )
 	RuiSetGameTime( rui, "startTime", Time() )
 	RuiTrackFloat3( rui, "pos", battery, RUI_TRACK_OVERHEAD_FOLLOW )
-	thread TrackEntityDeletion( battery, rui )
+	thread TrackBattery( battery, rui )
 }
 
 void function CreateCallback_HackTerminal( entity terminal )
@@ -477,6 +477,28 @@ void function TrackEntityDeletion( entity trackedEnt, var rui )
 	)
 
 	WaitForever()
+}
+
+void function TrackBattery( entity batteryEnt, var rui )
+{
+	batteryEnt.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+	function() : ( rui )
+		{
+			RuiDestroy( rui )
+		}
+	)
+
+	while ( true )
+	{
+		entity localPlayer = GetLocalClientPlayer()
+		if ( IsAlive( localPlayer ) && batteryEnt.GetParent() == localPlayer )
+			RuiSetBool( rui, "isVisible", false )
+		else
+			RuiSetBool( rui, "isVisible", true )
+		WaitFrame()
+	}
 }
 
 void function TrackHackerGrunt( entity grunt, var rui )
