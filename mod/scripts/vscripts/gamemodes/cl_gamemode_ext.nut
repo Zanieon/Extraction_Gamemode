@@ -57,7 +57,7 @@ void function ClGamemodeEXT_Init()
 	RegisterLevelMusicForTeam( eMusicPieceID.LEVEL_SUDDEN_DEATH, "music_mp_pilothunt_epilogue_win", TEAM_MILITIA )
 
 	AddCreateCallback( "prop_script", CreateCallback_PropScript )
-	AddCreateCallback( "item_titan_battery", CreateCallback_BatterySpawner )
+	AddCreateCallback( "item_titan_battery", CreateCallback_TrackBattery )
 	AddCreateCallback( "prop_control_panel", CreateCallback_HackTerminal )
 	AddCreateCallback( "prop_physics", CreateCallback_IntelTablet )
 	AddCreateCallback( "npc_soldier", CreateCallback_HackGrunt )
@@ -223,7 +223,7 @@ void function CreateCallback_PropScript( entity prop )
 		thread TrackCrateDistance( prop )
 }
 
-void function CreateCallback_BatterySpawner( entity battery )
+void function CreateCallback_TrackBattery( entity battery )
 {
 	var rui = CreateCockpitRui( $"ui/fra_battery_icon.rpak" )
 	RuiSetGameTime( rui, "startTime", Time() )
