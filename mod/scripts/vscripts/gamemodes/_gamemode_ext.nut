@@ -59,6 +59,7 @@ struct {
 	int minGunsCrates = 2
 	int maxGunsCrates = 5
 	bool mapHackActive = false
+	bool allyTitansRegenShields = true
 }file
 
 const float OBJECTIVE_TIME_BREAK = 30 // This could be configurable, but not doing because it is decent minimum time that announcements dont overlap each other
@@ -91,6 +92,8 @@ const int HACK_GRUNT_HEALTH_AMOUNT = 800
 const int HACK_STATION_SCORE_RANGE = 600
 const int PLAYER_TURRET_HEALTH_AMOUNT = 1250
 const int WEAPON_CRATE_HEALTH = 100
+const int EMPOWERED_TITAN_HEALTH = 25000
+const float EMPOWERED_TITAN_DURATION = 30
 
 const float INFANTRY_ASSAULT_ENGAGEMENT_RADIUS = 600 // Total combat area the enemies will stick around looking to for cover and targets
 const float TITAN_ASSAULT_ENGAGEMENT_RADIUS = 1200 // Titans requires a bit more space to not feel cramped around combat point
@@ -159,6 +162,7 @@ void function GamemodeEXT_Init()
 	AddCallback_OnPlayerGetsNewPilotLoadout( OverrideExtractionPilotLoadout )
 	AddCallback_OnPilotBecomesTitan( EXT_EmbarkTitan )
 	AddCallback_OnTitanBecomesPilot( EXT_DisembarkTitan )
+	AddCallback_OnTitanGetsNewTitanLoadout( AddStriderExtraWeapons )
 
 	AddClientCommandCallback( "dropbattery", ClientCommandCallbackEXTDropBattery )
 
@@ -199,6 +203,7 @@ void function GamemodeEXT_Init()
 	file.minGunsCrates = maxint( 1, GetCurrentPlaylistVarInt( "ext_weapon_crate_min_guns", 2 ) )
 	file.maxGunsCrates = maxint( file.minGunsCrates, GetCurrentPlaylistVarInt( "ext_weapon_crate_max_guns", 5 ) )
 	file.maxInfantryAI = maxint( 1, GetCurrentPlaylistVarInt( "ext_max_active_infantry", AI_HARD_LIMIT ) )
+	file.allyTitansRegenShields = GetCurrentPlaylistVarInt( "ext_allytitan_shieldregen", 1 ) == 1  ? true : false
 }
 
 void function ScoreEvent_SetupScoreValuesForExtraction()
@@ -274,8 +279,13 @@ void function Extraction_Prematch()
 {
 	BurnReward_GetByRef( "burnmeter_radar_jammer" ).rewardAvailableCallback = ExtractionRadarJammerBurncard // Since no minimap, this boost will block enemy spawns instead
 	BurnReward_GetByRef( "burnmeter_maphack" ).rewardAvailableCallback = ExtractionMaphackBurncard // Reveals enemies for more time and also weapon crates and terminals
+	BurnReward_GetByRef( "burnmeter_phase_rewind" ).rewardAvailableCallback = ExtractionRandomBehaviorBurncard // Do some really random wild shit with Phase Rewind cuz its useless in this mode
 	BurnMeter_SetBoostLimit( "burnmeter_radar_jammer", 2 )
 	BurnMeter_SetBoostLimit( "burnmeter_maphack", 2 )
+	BurnMeter_SetBoostLimit( "burnmeter_phase_rewind", 2 )
+	BurnMeter_SetBoostLimit( "burnmeter_smart_pistol", 3 )
+	BurnMeter_SetBoostLimit( "burnmeter_emergency_battery", 6 )
+	BurnMeter_SetBoostLimit( "burnmeter_hard_cover", 6 )
 
 	if ( !Flag( "LevelHasRoof" ) )
 		thread StratonHornetDogfightsIntense()
@@ -822,19 +832,38 @@ void function GamemodeEXT_OnPlayerKilled( entity victim, entity attacker, var da
 
 void function MitigateComboDamage( entity ent, var damageInfo )
 {
+	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
+	entity attacker = DamageInfo_GetAttacker( damageInfo )
+
+	/* Ported from FD code cuz Scorch can stack up alot of AoEs around Elites and solo them, which ofc it's not the intended way to fight them */
+	if ( ent.IsNPC() && ent.GetTeam() == TEAM_IMC && ent.ai.bossTitanType == TITAN_MERC && attacker.GetTeam() == TEAM_MILITIA )
+	{
+		switch ( damageSourceID )
+		{
+			case eDamageSourceId.mp_titanweapon_flame_wall:
+			case eDamageSourceId.mp_titanweapon_flame_ring:
+			case eDamageSourceId.mp_titanweapon_meteor:
+			case eDamageSourceId.mp_titanweapon_meteor_thermite:
+			case eDamageSourceId.mp_titanweapon_meteor_thermite_charged:
+			case eDamageSourceId.mp_titancore_flame_wave:
+			case eDamageSourceId.mp_titancore_flame_wave_secondary:
+			case eDamageSourceId.mp_titanweapon_heat_shield:
+			DamageInfo_ScaleDamage( damageInfo, 0.5 )
+			break
+		}
+	}
+
 	if ( ent.GetTeam() != TEAM_MILITIA )
 		return
 
-	int damageSourceID = DamageInfo_GetDamageSourceIdentifier( damageInfo )
-	entity attacker = DamageInfo_GetAttacker( damageInfo )
-	float damage = DamageInfo_GetDamage( damageInfo )
 	float recentDamage = TotalDamageOverTime_BlendedOut( ent, 0.5, 1.5 )
 	float damageMod = GraphCapped( recentDamage, 50, 350, 1.0, 0.1 )
-
 	if ( damageSourceID == eDamageSourceId.damagedef_frag_drone_throwable_NPC && ent.IsPlayer() && !ent.IsTitan() )
 		damageMod = 0.2
 
-	if ( IsAlive( attacker ) && attacker.IsNPC() && attacker.IsTitan() && !GetDoomedState( attacker ) && attacker.ai.bossTitanType == TITAN_MERC )
+	if ( attacker == ent && !ent.IsTitan() ) // Disable self-damage for friendly grunts and pilots
+		DamageInfo_SetDamage( damageInfo, 0 )
+	else if ( IsAlive( attacker ) && attacker.IsNPC() && attacker.IsTitan() && !GetDoomedState( attacker ) && attacker.ai.bossTitanType == TITAN_MERC )
 	{
 		if ( damageSourceID == eDamageSourceId.auto_titan_melee || DamageInfo_GetCustomDamageType( damageInfo ) & DF_MELEE )
 		{
@@ -866,6 +895,8 @@ void function MitigateComboDamage( entity ent, var damageInfo )
 			}
 		}
 	}
+	else if ( damageSourceID == damagedef_titan_fall && ent.IsPlayer() && ent.IsTitan() )
+		DamageInfo_SetDamage( damageInfo, 1250 )
 	else
 		DamageInfo_ScaleDamage( damageInfo, damageMod )
 }
@@ -1304,7 +1335,7 @@ void function FragDroneSpawn_Thread( entity tick )
 	{
 		tick.SetAISettings( "npc_frag_drone_fd" )
 		tick.AssaultSetGoalRadius( 400 )
-		tick.AssaultSetGoalHeight( 64 )
+		tick.AssaultSetGoalHeight( 160 )
 		tick.AssaultSetFightRadius( 800 )
 		NPCFollowsPlayer( tick, tickOwner )
 	}
@@ -1331,7 +1362,7 @@ void function TitanScaleByHazard( entity ent )
 	if ( ent.GetTeam() == TEAM_IMC && GetGlobalNetInt( "hazardLevel" ) >= 5 )
 		thread OnNPCTitanSpawn_Thread( ent )
 
-	if ( ent.GetTeam() == TEAM_MILITIA )
+	if ( ent.GetTeam() == TEAM_MILITIA && file.allyTitansRegenShields )
 	{
 		entity soul = ent.GetTitanSoul()
 		if( IsValid( soul ) )
@@ -1408,6 +1439,24 @@ void function EXT_SpawnEliteTitan()
 	else
 		guy.AssaultPointClamped( expect vector( clampedVec ) )
 }
+
+
+void function AddStriderExtraWeapons( entity npc, TitanLoadoutDef loadout )
+{
+	if ( npc.GetTeam() == TEAM_IMC )
+		return
+	
+	switch ( Dev_GetPlayerSettingByKeyField_Global( loadout.setFile, "titanCharacterName" ) )
+	{
+		case "ronin":
+			npc.GiveWeapon( "mp_titanweapon_arc_cannon", ["splitter"] )
+			break
+		case "northstar":
+			npc.GiveWeapon( "mp_titanweapon_rocketeer_rocketstream", ["rocketstream_fast","RocketCore_RocketStream"] )
+			break
+	}
+}
+
 
 
 
@@ -2016,6 +2065,9 @@ void function Extraction_PlaceWeaponCrate( vector origin, vector angles )
 	weaponCrate.SetHealth( WEAPON_CRATE_HEALTH )
 	weaponCrate.SetModel( WEAPON_CRATE_MODEL )
 	weaponCrate.SetForceVisibleInPhaseShift( true )
+	weaponCrate.SetUsable()
+	weaponCrate.SetUsableByGroup( "pilot" )
+	weaponCrate.SetUsePrompts( "#EXT_CRATE_BREAK_HINT", "#EXT_CRATE_BREAK_HINT" )
 
 	file.weaponCrates.append( weaponCrate )
 
@@ -2160,6 +2212,7 @@ void function TrackSwitchPanelInteraction_Threaded( entity switchPanel, entity r
 {
 	switchPanel.EndSignal( "OnDestroy" )
 	switchPanel.SetUsable()
+	switchPanel.SetUsableByGroup( "pilot" )
 	switchPanel.SetUsePrompts( "#EXT_CONSOLE_PRESS_HOLD", "#EXT_CONSOLE_PRESS_USE" )
 
 	entity player = expect entity( switchPanel.WaitSignal( "OnPlayerUse" ).player )
@@ -2718,7 +2771,11 @@ void function MonitorHackingGrunt_Thread( entity grunt, entity hackStation )
 	}
 	else
 		return
-
+	
+	if ( grunt.ContextAction_IsBusy() )
+		grunt.ContextAction_ClearBusy()
+	
+	grunt.Anim_Stop()
 	array < string > sittingAnims = [ "pt_console_runin_R", "pt_console_runin_L" ]
 	waitthread PlayAnim( grunt, sittingAnims.getrandom(), hackStation, attachID )
 
@@ -2951,6 +3008,128 @@ void function RadarJammerBurncard_Thread( entity player )
 	FlagSet( "EnemySpawnerActive" )
 }
 
+void function ExtractionRandomBehaviorBurncard( entity player )
+{
+	int chosenBehavior = RandomIntRange( 0, 3 )
+
+	switch ( chosenBehavior )
+	{
+		case 0:
+			foreach ( entity player in GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ) )
+			{
+				if ( !player.IsTitan() )
+				{
+					player.SetShieldHealthMax( 400 )
+					player.SetShieldHealth( 400 )
+				}
+			}
+		break
+
+		case 1:
+			array < entity > enemiesArray = GetNPCArrayEx( "any", TEAM_IMC, player.GetTeam(), player.GetOrigin(), 1200 )
+			foreach ( entity ent in enemiesArray )
+			{
+				PlayFX( $"P_impact_exp_XLG_metal", ent.GetOrigin() )
+				EmitSoundAtPosition( player.GetTeam(), ent.GetOrigin(), "Explo_Satchel_Impact_3P" )
+				ent.Die( player, player, { scriptType = DF_GIB | DF_DISMEMBERMENT, damageSourceId = eDamageSourceId.flash_surge } )
+			}
+		break
+
+		case 2:
+			vector attackAngles = player.EyeAngles()
+			vector baseUpVec = AnglesToUp( attackAngles )
+			vector baseRightVec = AnglesToRight( attackAngles )
+			for ( int i = 0; i < 15; i++ )
+   			{
+				vector upVec = baseUpVec * RandomFloatRange( -0.1, 0.1 )
+				vector rightVec = baseRightVec * RandomFloatRange( -0.1, 0.1 )
+				vector attackDir = attackAngles + upVec + rightVec
+				entity nukeGrenade = CreateEntity( "prop_physics" )
+
+				nukeGrenade.SetValueForModelKey( $"models/weapons/bullets/triple_threat_projectile.mdl" )
+				nukeGrenade.kv.spawnflags = 0
+				nukeGrenade.kv.fadedist = -1
+				nukeGrenade.kv.physdamagescale = 0.1
+				nukeGrenade.kv.inertiaScale = 1.0
+				nukeGrenade.kv.renderamt = 255
+				nukeGrenade.kv.rendercolor = "255 255 255"
+				SetTeam( nukeGrenade, TEAM_MILITIA )
+				nukeGrenade.SetOrigin( player.EyePosition() )
+				nukeGrenade.SetAngles( RandomVec( 180 ) )
+				DispatchSpawn( nukeGrenade )
+
+				nukeGrenade.NotSolid()
+				nukeGrenade.SetVelocity( attackDir * 3000 )
+				thread TrackNukeGrenade_Thread( nukeGrenade, player )
+			}
+		break
+
+		case 3:
+			thread SpawnFriendlyReaper_Thread( player )
+		break
+	}
+}
+
+void function SpawnFriendlyReaper_Thread( entity player )
+{
+	entity reaper = CreateSuperSpectre( TEAM_MILITIA, player.GetOrigin(), < 0, RandomFloatRange( 0.0, 359.9 ), 0 > )
+	SetSpawnOption_AISettings( reaper, "npc_super_spectre_aitdm" )
+	SetSpawnOption_Alert( reaper )
+	DispatchSpawn( reaper )
+
+	vector reaperOrigin = reaper.GetOrigin()
+	vector ornull clampedPos = NavMesh_ClampPointForAIWithExtents( reaperOrigin, reaper, < 1400, 1400, 1400 > )
+	if ( clampedPos != null )
+	{
+		expect vector( clampedPos )
+		TraceResults result = TraceHull( reaperOrigin, reaperOrigin, reaper.GetBoundingMins(), reaper.GetBoundingMaxs(), [reaper], TRACE_MASK_TITANSOLID, TRACE_COLLISION_GROUP_NONE )
+		if ( result.startSolid ||
+			TraceLineSimple( reaperOrigin + < 0, 0, 128 >, clampedPos, reaper ) == 1.0 ||
+			TraceLineSimple( reaperOrigin + < 0, 0, 200 >, clampedPos, reaper ) == 1.0 ||
+			TraceLineSimple( reaperOrigin + < 0, 0, 200 >, clampedPos + < 0, 0, 128 >, reaper ) == 1.0 )
+		{
+			reaper.SetOrigin( clampedPos )
+			reaper.ForceCheckGroundEntity()
+		}
+	}
+
+	thread SuperSpectre_WarpFall( reaper )
+	reaper.EndSignal( "OnDeath" )
+	reaper.EndSignal( "OnDestroy" )
+	reaper.WaitSignal( "WarpfallComplete" )
+
+	reaper.DisableRenderAlways()
+	reaper.DisableNPCMoveFlag( NPCMF_WALK_NONCOMBAT | NPCMF_WALK_ALWAYS )
+	reaper.EnableNPCMoveFlag( NPCMF_PREFER_SPRINT )
+	NPCFollowsPlayer( reaper, player )
+	reaper.AssaultSetGoalRadius( 800 )
+	reaper.AssaultSetGoalHeight( 300 )
+	reaper.AssaultSetFightRadius( 1200 )
+}
+
+void function TrackNukeGrenade_Thread( entity nukeGrenade, entity player )
+{
+	player.EndSignal( "OnDestroy" )
+
+	OnThreadEnd(
+		function() : ( nukeGrenade, player )
+		{
+			if ( IsValid( nukeGrenade ) )
+			{
+				if ( IsValidPlayer( player ) )
+					RadiusDamage( nukeGrenade.GetOrigin() + < 0, 0, 4 >, player, nukeGrenade, 350, 5000, 256, 512, SF_ENVEXPLOSION_NO_DAMAGEOWNER | SF_ENVEXPLOSION_MASK_BRUSHONLY, 0, 50000, DF_RAGDOLL | DF_EXPLOSION, eDamageSourceId.mp_titancore_nuke_core )
+				
+				PlayFX( $"xo_exp_death", nukeGrenade.GetOrigin() )
+				EmitSoundAtPosition( nukeGrenade.GetTeam(), nukeGrenade.GetOrigin(), "ai_reaper_nukedestruct_explo_3p" )
+				nukeGrenade.Destroy()
+			}
+		}
+	)
+
+	wait 5.0
+}
+
+
 
 
 
@@ -2971,7 +3150,7 @@ void function RadarJammerBurncard_Thread( entity player )
 void function ExtractionDropshipIncoming( entity evacNode, entity spaceNode )
 {
 	int health = 25000
-	int shield = 5000
+	int shield = 7500
 	float shipHoldTime = 15.0
 	asset DROPSHIP_MODEL = $"models/vehicle/crow_dropship/crow_dropship_hero.mdl"
 

@@ -47,6 +47,18 @@ void function Extraction_InitMaps()
 
 void function ExecKodaiExtraction()
 {
+	array< entity > spawnpoints = SpawnPoints_GetPilot()
+	spawnpoints.extend( SpawnPoints_GetTitan() )
+
+	foreach ( spawnPoint in spawnpoints ) //Trim map edge spawns
+	{
+		if ( spawnPoint.GetOrigin().x >= 3202 || spawnPoint.GetOrigin().x <= -2839 )
+			spawnPoint.Destroy()
+		
+		if ( spawnPoint.GetOrigin().y >= 4145 || spawnPoint.GetOrigin().y <= -3045 )
+			spawnPoint.Destroy()
+	}
+
 	Extraction_PlaceRespawnTerminal( < -2944, -260, 1164 >, < 0, 180, 0 > )
 	Extraction_PlaceTitanTerminal( < 2069, -2156, 984 >, < 0, 180, 0 > )
 
@@ -544,6 +556,18 @@ void function ExecWarGamesExtraction()
 
 void function ExecColonyExtraction()
 {
+	array< entity > spawnpoints = SpawnPoints_GetPilot()
+	spawnpoints.extend( SpawnPoints_GetTitan() )
+
+	foreach ( spawnPoint in spawnpoints ) //Trim map edge spawns
+	{
+		if ( spawnPoint.GetOrigin().x <= -2914 )
+			spawnPoint.Destroy()
+		
+		if ( spawnPoint.GetOrigin().y >= 4979 )
+			spawnPoint.Destroy()
+	}
+
 	Extraction_PlaceRespawnTerminal( < 2624, 3807, 24 >, < 0, -90, 0 > )
 	Extraction_PlaceTitanTerminal( < -1697, -2248, 319 >, < 0, 75, 0 > )
 
@@ -667,12 +691,14 @@ void function CreateFastZipline( vector startPos, vector endPos )
 
 void function ExecRelicExtraction()
 {
-	foreach ( podPoint in SpawnPoints_GetDropPod() ) //Trim OOB spawns from FD pods
+	array< entity > spawnpoints = SpawnPoints_GetPilot()
+	spawnpoints.extend( SpawnPoints_GetTitan() )
+	spawnpoints.extend( SpawnPoints_GetDropPod() )
+
+	foreach ( spawnPoint in spawnpoints ) //Trim map edge spawns
 	{
-		if ( Distance( podPoint.GetOrigin(), < -37, -5950, 1796 > ) < 1200 )
-			podPoint.Destroy()
-		else if ( Distance( podPoint.GetOrigin(), < -37, -3674, 2146 > ) < 1200 )
-			podPoint.Destroy()
+		if ( spawnPoint.GetOrigin().x >= 4748 || spawnPoint.GetOrigin().x <= -4548 || spawnPoint.GetOrigin().z >= 1000 )
+			spawnPoint.Destroy()
 	}
 
 	Extraction_PlaceRespawnTerminal( < 1610, -872, 217 >, < 0, -90, 0 > )
@@ -761,6 +787,15 @@ void function ExecRelicExtraction()
 
 void function ExecBoomtownExtraction()
 {
+	array< entity > spawnpoints = SpawnPoints_GetPilot()
+	spawnpoints.extend( SpawnPoints_GetTitan() )
+
+	foreach ( spawnPoint in spawnpoints ) //Trim map edge spawns
+	{
+		if ( spawnPoint.GetOrigin().x >= 9314 || spawnPoint.GetOrigin().x <= -508 )
+			spawnPoint.Destroy()
+	}
+
 	Extraction_PlaceRespawnTerminal( < 3826, -1395, 2304 >, < 0, -90, 0 > )
 	Extraction_PlaceTitanTerminal( < 4037, -6558, 2241 >, < 0, 90, 0 > )
 

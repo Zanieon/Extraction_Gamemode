@@ -45,6 +45,7 @@ playlists
 				ext_weapon_crate_min_guns 2
 				ext_weapon_crate_max_guns 5
 				ext_max_active_infantry 32
+				ext_allytitan_shieldregen 1
 				
 				gamemode_score_hint #GAMEMODE_SCORE_HINT_EXT
 				gamemode_bullet_001	#GAMEMODE_BULLET_EXT_001
