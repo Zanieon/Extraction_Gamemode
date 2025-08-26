@@ -1446,7 +1446,7 @@ void function AddStriderExtraWeapons( entity npc, TitanLoadoutDef loadout )
 	if ( npc.GetTeam() == TEAM_IMC )
 		return
 	
-	switch ( Dev_GetPlayerSettingByKeyField_Global( loadout.setFile, "titanCharacterName" ) )
+	switch ( GetTitanCharacterName( npc ) )
 	{
 		case "ronin":
 			npc.GiveWeapon( "mp_titanweapon_arc_cannon", ["splitter"] )
