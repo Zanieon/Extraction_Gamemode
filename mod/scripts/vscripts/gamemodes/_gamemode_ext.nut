@@ -1440,13 +1440,13 @@ void function EXT_SpawnEliteTitan()
 		guy.AssaultPointClamped( expect vector( clampedVec ) )
 }
 
-
 void function AddStriderExtraWeapons( entity npc, TitanLoadoutDef loadout )
 {
 	if ( npc.GetTeam() == TEAM_IMC )
 		return
-	
-	switch ( Dev_GetPlayerSettingByKeyField_Global( loadout.setFile, "titanCharacterName" ) )
+
+	string settings = expect string( Dev_GetPlayerSettingByKeyField_Global( loadout.setFile, "titanCharacterName" ) )
+	switch ( settings )
 	{
 		case "ronin":
 			npc.GiveWeapon( "mp_titanweapon_arc_cannon", ["splitter"] )
@@ -1638,6 +1638,9 @@ vector function GetSpawnpoints_LargeUnits()
 			filteredSpawnVecs.append( spawnpoint )
 	}
 
+	if ( !filteredSpawnVecs.len() )
+		filteredSpawnVecs = spawnVecs
+
 	return filteredSpawnVecs.getrandom()
 }
 
@@ -1779,7 +1782,25 @@ void function OverrideExtractionPilotLoadout( entity player, PilotLoadoutDef loa
 	player.SetPlayerSettingsWithMods( loadout.setFile, loadout.setFileMods )
 	
 	TakeWeaponsForArray( player, player.GetMainWeapons() )
-	player.GiveWeapon( "mp_weapon_semipistol", [] )
+
+	array < string > p16Mods = []
+
+	if ( GetGlobalNetInt( "hazardLevel" ) >= 2 )
+		p16Mods.append( "extended_ammo" )
+	if ( GetGlobalNetInt( "hazardLevel" ) >= 3 )
+	{
+		p16Mods.append( "pas_fast_reload" )
+		p16Mods.append( "pas_run_and_gun" )
+	}
+	if ( GetGlobalNetInt( "hazardLevel" ) >= 4 )
+	{
+		p16Mods.append( "pas_fast_ads" )
+		p16Mods.append( "pas_fast_swap" )
+	}
+	if ( GetGlobalNetInt( "hazardLevel" ) >= 4 )
+		p16Mods.append( "burn_mod_semipistol" )
+	
+	player.GiveWeapon( "mp_weapon_semipistol", p16Mods )
 	player.TakeOffhandWeapon( OFFHAND_SPECIAL )
 	player.TakeOffhandWeapon( OFFHAND_ORDNANCE )
 }
@@ -3036,9 +3057,9 @@ void function ExtractionRandomBehaviorBurncard( entity player )
 		break
 
 		case 2:
-			vector attackAngles = player.EyeAngles()
-			vector baseUpVec = AnglesToUp( attackAngles )
-			vector baseRightVec = AnglesToRight( attackAngles )
+			vector attackAngles = player.GetViewForward()
+			vector baseUpVec = player.GetViewUp()
+			vector baseRightVec = player.GetViewRight()
 			for ( int i = 0; i < 15; i++ )
    			{
 				vector upVec = baseUpVec * RandomFloatRange( -0.1, 0.1 )
@@ -3276,13 +3297,13 @@ void function ExtractionDropshipIncoming( entity evacNode, entity spaceNode )
 
 		if ( everyoneOnBoard )
 			break
-		
+
 		WaitFrame()
 	}
 
 	StopSoundOnEntity( dropship, "Crow_MCOR_Evac_Hover" )
 	EmitSoundOnEntity( dropship, "Crow_MCOR_Evac_Flyout" )
-	
+
 	foreach ( entity player in GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ) )
 	{
 		if ( player.GetParent() == dropship )
@@ -3291,15 +3312,15 @@ void function ExtractionDropshipIncoming( entity evacNode, entity spaceNode )
 			player.DisableWeaponViewModel()
 		}
 	}
-	
+
 	dropship.Signal( "EvacShipLeaves" )
 	thread PlayAnim( dropship, "cd_dropship_rescue_side_end", evacNode )
 	wait dropship.GetSequenceDuration( "cd_dropship_rescue_side_end" ) - WARPINFXTIME
-	
+
 	foreach ( entity player in GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ) )
 		if ( player.GetParent() == dropship )
 			Remote_CallFunction_NonReplay( player, "ServerCallback_PlayScreenFXWarpJump" )
-	
+
 	wait WARPINFXTIME
 	dropship.kv.VisibilityFlags = ENTITY_VISIBLE_TO_NOBODY
 
@@ -3307,7 +3328,7 @@ void function ExtractionDropshipIncoming( entity evacNode, entity spaceNode )
 
 	if ( !IsValid( dropship ) )
 		return
-	
+
 	thread __WarpOutEffectShared( dropship )
 
 	dropship.SetOrigin( spaceNode.GetOrigin() )
@@ -3316,6 +3337,8 @@ void function ExtractionDropshipIncoming( entity evacNode, entity spaceNode )
 	svGlobal.levelEnt.Signal( "EvacOver" )
 	thread PlayAnim( dropship, "ds_space_flyby_dropshipA", spaceNode )
 	
+	dropship.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
+	HideName( dropship )
 	foreach ( entity player in GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ) )
 	{
 		if ( player.GetParent() != dropship )
@@ -3324,15 +3347,13 @@ void function ExtractionDropshipIncoming( entity evacNode, entity spaceNode )
 				SetPlayerChallengeEvacState( player, 2 )
 			continue
 		}
-		
-		dropship.kv.VisibilityFlags = ENTITY_VISIBLE_TO_FRIENDLY
-		HideName( dropship )
+
 		player.SetSkyCamera( GetEnt( SKYBOXSPACE ) )
 		Remote_CallFunction_NonReplay( player, "ServerCallback_DisableHudForEvac" )
 		Remote_CallFunction_NonReplay( player, "ServerCallback_SetClassicSkyScale", dropship.GetEncodedEHandle(), 0.7 )
 		Remote_CallFunction_NonReplay( player, "ServerCallback_SetMapSettings", 4.0, false, 0.4, 0.125 )
 		SetPlayerChallengeEvacState( player, 1 )
-		
+
 		foreach ( entity otherPlayer in GetPlayerArray() )
 			Remote_CallFunction_NonReplay( otherPlayer, "ServerCallback_EvacObit", player.GetEncodedEHandle() )
 	}
