@@ -26,6 +26,8 @@ struct {
 	array< void functionref() > extractionCallbacks
 	vector enemiesAssaultSpecialPosition = < 0, 0, 0 >
 	array< vector > enemiesDefaultAssaultPositions
+	array< vector > infantrySpawnVecs
+	array< vector > titanSpawnVecs
 	entity objectiveHarvester
 	entity harvesterBeam
 	entity spawnedBattery
@@ -249,6 +251,14 @@ void function LoadExtractionContent()
 	SetGlobalNetInt( "hazardLevel", 1 )
 	SetGlobalNetInt( "currentMainObjective", 0 )
 	SetObjectiveMaxCounter( 0 )
+
+	array< entity > spawnpoints = SpawnPoints_GetPilot()
+	foreach ( entity spawnpoint in spawnpoints )
+		file.infantrySpawnVecs.append( spawnpoint.GetOrigin() )
+
+	spawnpoints = SpawnPoints_GetTitan()
+	foreach ( entity spawnpoint in spawnpoints )
+		file.titanSpawnVecs.append( spawnpoint.GetOrigin() )
 	
 	// The minimum objectives has to be at least 3 because the challenge of completing 3 of them
 	int objectiveMin = maxint( 3, GetCurrentPlaylistVarInt( "ext_objective_min", 8 ) )
@@ -1126,10 +1136,12 @@ void function EXT_SpawnGrunt( vector pos )
 	array< string > gunsArrayTier2 = ["mp_weapon_vinson", "mp_weapon_shotgun_pistol", "mp_weapon_shotgun_doublebarrel", "mp_weapon_r97", "mp_weapon_esaw"]
 	array< string > gunsArrayTier3 = ["mp_weapon_lmg", "mp_weapon_lstar", "mp_weapon_mastiff", "mp_weapon_shotgun", "mp_weapon_smr", "mp_weapon_epg"]
 
-	array< string > grenadesBase = ["mp_weapon_grenade_emp", "mp_weapon_grenade_electric_smoke"]
-	array< string > grenadesTier2 = ["mp_weapon_frag_grenade", "mp_weapon_thermite_grenade"]
+	array< string > grenadesBase = []
+	array< string > grenadesTier2 = ["mp_weapon_grenade_emp","mp_weapon_frag_grenade"]
+	array< string > grenadesTier3 = ["mp_weapon_thermite_grenade"]
+	array< string > grenadesTier4 = ["mp_weapon_grenade_gravity"]
+	array< string > grenadesTier5 = ["mp_weapon_satchel","mp_weapon_grenade_electric_smoke"]
 	
-	guy.kv.grenadeWeaponName = grenadesBase.getrandom()
 	if ( GetGlobalNetInt( "hazardLevel" ) >= 2 )
 	{
 		gunsArrayBase.extend( gunsArrayTier2 )
@@ -1137,6 +1149,7 @@ void function EXT_SpawnGrunt( vector pos )
 	}
 	if ( GetGlobalNetInt( "hazardLevel" ) >= 3 )
 	{
+		grenadesBase.extend( grenadesTier3 )
 		gunsArrayBase.extend( gunsArrayTier3 )
 		if ( RandomIntRange( 1, 100 ) >= 60 )
 		{
@@ -1146,8 +1159,18 @@ void function EXT_SpawnGrunt( vector pos )
 				SetSpawnOption_AISettings( guy, "npc_soldier_pve_specialist" )
 		}
 	}
+	if ( GetGlobalNetInt( "hazardLevel" ) >= 4 )
+		grenadesBase.extend( grenadesTier4 )
+	if ( GetGlobalNetInt( "hazardLevel" ) >= 5 )
+		grenadesBase.extend( grenadesTier5 )
 
 	SetSpawnOption_Weapon( guy, gunsArrayBase.getrandom() )
+
+	if ( !grenadesBase.len() )
+		guy.kv.grenadeWeaponName = ""
+	else
+		guy.kv.grenadeWeaponName = grenadesBase.getrandom()
+	
 	DispatchSpawn( guy )
 
 	guy.EnableNPCFlag( NPC_NO_WEAPON_DROP | NPC_TEAM_SPOTTED_ENEMY | NPC_ALLOW_PATROL | NPC_ALLOW_INVESTIGATE | NPC_IGNORE_FRIENDLY_SOUND | NPC_NEW_ENEMY_FROM_SOUND )
@@ -1523,7 +1546,7 @@ void function Infantry_Spawner_Thread()
 			}
 		}
 		
-		wait 0.2
+		wait 0.5
 	}
 }
 
@@ -1550,7 +1573,7 @@ void function Reaper_Spawner_Thread()
 			thread EXT_SpawnReaper( origin )
 		}
 		
-		wait 0.2
+		wait 0.5
 	}
 }
 
@@ -1569,20 +1592,15 @@ void function Titan_Spawner_Thread()
 			thread EXT_SpawnTitan( origin )
 		}
 		
-		wait 0.2
+		wait 0.5
 	}
 }
 
 vector function GetSpawnpointsOutsidePlayerLOS_HumanUnits()
 {
-	array< entity > spawnpoints = SpawnPoints_GetPilot()
-	array< vector > spawnVecs
 	array< vector > filteredSpawnVecs
 
-	foreach ( entity spawnpoint in spawnpoints )
-		spawnVecs.append( spawnpoint.GetOrigin() )
-	
-	foreach ( vector spawnpoint in spawnVecs )
+	foreach ( vector spawnpoint in file.infantrySpawnVecs )
 	{
 		bool needsToRemove = false
 		foreach ( player in GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ) )
@@ -1601,7 +1619,7 @@ vector function GetSpawnpointsOutsidePlayerLOS_HumanUnits()
 
 	if ( !filteredSpawnVecs.len() )
 	{
-		foreach ( vector spawnpoint in spawnVecs )
+		foreach ( vector spawnpoint in file.infantrySpawnVecs )
 		{
 			bool needsToRemove = false
 			foreach ( player in GetPlayerArrayOfTeam_Alive( TEAM_MILITIA ) )
@@ -1621,14 +1639,9 @@ vector function GetSpawnpointsOutsidePlayerLOS_HumanUnits()
 
 vector function GetSpawnpoints_LargeUnits()
 {
-	array< entity > spawnpoints = SpawnPoints_GetTitan()
-	array< vector > spawnVecs
 	array< vector > filteredSpawnVecs
 
-	foreach ( entity spawnpoint in spawnpoints )
-		spawnVecs.append( spawnpoint.GetOrigin() )
-
-	foreach ( vector spawnpoint in spawnVecs )
+	foreach ( vector spawnpoint in file.titanSpawnVecs )
 	{
 		bool needsToRemove = false
 		if ( file.enemiesAssaultSpecialPosition != < 0, 0, 0 > && Distance2D( spawnpoint, file.enemiesAssaultSpecialPosition ) > SPAWN_ENEMY_MAXDIST_LOCATION )
@@ -1639,7 +1652,7 @@ vector function GetSpawnpoints_LargeUnits()
 	}
 
 	if ( !filteredSpawnVecs.len() )
-		filteredSpawnVecs = spawnVecs
+		filteredSpawnVecs = file.titanSpawnVecs
 
 	return filteredSpawnVecs.getrandom()
 }
